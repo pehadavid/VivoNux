@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Script d'ajustement dynamique Wi-Fi MT7922 (Secteur vs Batterie) - Norme FR
+# Dynamic MT7922 Wi-Fi tuning script (AC vs battery) - French regulation
 
 IFACE="wlp98s0"
 if [ ! -d "/sys/class/net/$IFACE" ]; then
@@ -14,11 +14,11 @@ if [ -z "$ONLINE" ]; then
 fi
 
 if [ "$ONLINE" = "1" ]; then
-    # Mode SECTEUR : Puissance d'émission maximale FR (20 dBm = 100 mW) & Power Save OFF
+    # AC mode: max French-legal transmit power (20 dBm = 100 mW) & Power Save OFF
     iw dev "$IFACE" set txpower fixed 2000 2>/dev/null || true
     iw dev "$IFACE" set power_save off 2>/dev/null || true
 else
-    # Mode BATTERIE : Puissance d'émission automatique & Power Save ON
+    # Battery mode: automatic transmit power & Power Save ON
     iw dev "$IFACE" set txpower auto 2>/dev/null || true
     iw dev "$IFACE" set power_save on 2>/dev/null || true
 fi

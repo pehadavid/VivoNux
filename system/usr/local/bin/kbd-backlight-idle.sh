@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# VivoNux — éteint le rétroéclairage clavier après une minute d'inactivité,
-# uniquement sur batterie. Restaure la luminosité précédente dès qu'une
-# activité clavier/trackpad reprend, ou dès le rebranchement secteur.
+# VivoNux — turns the keyboard backlight off after one minute of inactivity,
+# battery only. Restores the previous brightness as soon as keyboard/trackpad
+# activity resumes, or as soon as AC power is plugged back in.
 #
-# Utilise l'IdleMonitor de Mutter (fonctionne sous Wayland, contrairement à
-# xprintidle) et l'interface UPower KbdBacklight (accessible sans sudo, et
-# indépendante du nom exact du LED sysfs).
+# Uses Mutter's IdleMonitor (works under Wayland, unlike xprintidle) and
+# UPower's KbdBacklight interface (accessible without sudo, and independent
+# of the exact sysfs LED name).
 
 IDLE_THRESHOLD_MS="${VIVONUX_KBD_IDLE_MS:-60000}"
 POLL_INTERVAL="${VIVONUX_KBD_POLL_SECONDS:-5}"
 STATE_FILE="${XDG_RUNTIME_DIR:-/tmp}/vivonux-kbd-backlight-saved"
 
 get_idle_ms() {
-    # La sortie est du type "(uint64 5051,)" — ne pas faire un grep -oE '[0-9]+'
-    # naïf dessus : "uint64" contient lui-même les chiffres "64" et fausserait
-    # l'extraction. On capture uniquement le nombre qui suit "uint64 ".
+    # Output looks like "(uint64 5051,)" — don't run a naive grep -oE '[0-9]+'
+    # on this: "uint64" itself contains the digits "64" and would throw the
+    # extraction off. Only capture the number that follows "uint64 ".
     gdbus call --session --dest org.gnome.Mutter.IdleMonitor \
         --object-path /org/gnome/Mutter/IdleMonitor/Core \
         --method org.gnome.Mutter.IdleMonitor.GetIdletime 2>/dev/null \

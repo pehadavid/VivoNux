@@ -3,14 +3,14 @@ import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 import * as QuickSettings from 'resource:///org/gnome/shell/ui/quickSettings.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
-import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
+import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const THRESHOLD_PATH = '/sys/class/power_supply/BAT1/charge_control_end_threshold';
 const CONF_PATH = `${GLib.get_home_dir()}/.config/charge_limit.conf`;
 
-// GLib.file_set_contents() écrit via un fichier temporaire + rename (écriture
-// atomique), un schéma que sysfs refuse (impossible de créer un nouveau
-// dentry dans /sys). Il faut donc ouvrir le fichier existant directement.
+// GLib.file_set_contents() writes via a temp file + rename (atomic write), a
+// pattern sysfs refuses (can't create a new dentry under /sys). So the
+// existing file has to be opened directly instead.
 function writeSysfs(path, value) {
     const file = Gio.File.new_for_path(path);
     const ioStream = file.open_readwrite(null);
@@ -22,16 +22,16 @@ const BatteryChargeToggle = GObject.registerClass(
 class BatteryChargeToggle extends QuickSettings.QuickToggle {
     _init(extensionObject) {
         super._init({
-            title: 'Charge Complète',
+            title: _('Full Charge'),
             iconName: 'battery-level-100-charged-symbolic',
         });
 
         this._extension = extensionObject;
 
-        // Définir l'état initial
+        // Set the initial state
         this._updateState();
 
-        // Écouter les clics de l'utilisateur
+        // Listen for user clicks
         this.connect('clicked', () => {
             this._toggleLimit();
         });
@@ -39,27 +39,27 @@ class BatteryChargeToggle extends QuickSettings.QuickToggle {
 
     _updateState() {
         try {
-            let limit = '80'; // Par défaut, limité à 80%
-            
-            // Tente de lire le fichier de config persistant
+            let limit = '80'; // Limited to 80% by default
+
+            // Try reading the persistent config file
             if (GLib.file_test(CONF_PATH, GLib.FileTest.EXISTS)) {
                 const [success, contents] = GLib.file_get_contents(CONF_PATH);
                 if (success) {
                     limit = new TextDecoder().decode(contents).trim();
                 }
             } else {
-                // Si la config n'existe pas, on l'initialise à 80
+                // If the config doesn't exist yet, initialize it to 80
                 GLib.file_set_contents(CONF_PATH, '80');
                 if (GLib.file_test(THRESHOLD_PATH, GLib.FileTest.EXISTS)) {
                     writeSysfs(THRESHOLD_PATH, '80');
                 }
             }
 
-            // Si la limite est 100, la "Charge Complète" est activée (checked = true)
+            // If the limit is 100, "Full Charge" is enabled (checked = true)
             this.checked = (limit === '100');
-            this.subtitle = this.checked ? 'Actif (100%)' : 'Limité (80%)';
-            
-            // Synchronise l'état physique du sysfs si nécessaire
+            this.subtitle = this.checked ? _('On (100%)') : _('Limited (80%)');
+
+            // Sync the physical sysfs state if needed
             if (GLib.file_test(THRESHOLD_PATH, GLib.FileTest.EXISTS)) {
                 const [success, sysfsContents] = GLib.file_get_contents(THRESHOLD_PATH);
                 if (success) {
@@ -71,26 +71,26 @@ class BatteryChargeToggle extends QuickSettings.QuickToggle {
             }
         } catch (e) {
             console.error(e);
-            this.subtitle = 'Erreur';
+            this.subtitle = _('Error');
         }
     }
 
     _toggleLimit() {
         try {
             const newValue = this.checked ? '100' : '80';
-            
-            // Met à jour la config persistante
+
+            // Update the persistent config
             GLib.file_set_contents(CONF_PATH, newValue);
-            
-            // Met à jour le sysfs physique
+
+            // Update the physical sysfs value
             if (GLib.file_test(THRESHOLD_PATH, GLib.FileTest.EXISTS)) {
                 writeSysfs(THRESHOLD_PATH, newValue);
             }
-            
-            this.subtitle = this.checked ? 'Actif (100%)' : 'Limité (80%)';
+
+            this.subtitle = this.checked ? _('On (100%)') : _('Limited (80%)');
         } catch (e) {
             console.error(e);
-            this.subtitle = 'Erreur';
+            this.subtitle = _('Error');
         }
     }
 });

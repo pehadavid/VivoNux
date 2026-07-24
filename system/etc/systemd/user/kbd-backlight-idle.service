@@ -1,5 +1,5 @@
 [Unit]
-Description=VivoNux - extinction du retroeclairage clavier apres inactivite sur batterie
+Description=VivoNux - keyboard backlight idle shutoff on battery
 After=graphical-session.target
 PartOf=graphical-session.target
 
