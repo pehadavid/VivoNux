@@ -1,0 +1,12 @@
+[Unit]
+Description=VivoNux - extinction du retroeclairage clavier apres inactivite sur batterie
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/local/bin/kbd-backlight-idle.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

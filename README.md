@@ -101,11 +101,24 @@ On top of the kernel settings above, the AC/battery switch relies on a userspace
 
 - **[`wifi-power-mode.sh`](system/usr/local/bin/wifi-power-mode.sh)** (deployed to `/usr/local/bin/`) + udev rule [`99-wifi-power-mode.rules`](system/etc/udev/rules.d/99-wifi-power-mode.rules) triggered on any `power_supply` event: manages transmit power (txpower, FR regulation) on AC/battery. TLP *also* manages Wi-Fi power-save on its own side (`WIFI_PWR_ON_AC/BAT`) — redundant with this script but harmless, both converge to the same value.
 
-- **Battery charge threshold**: [`99-battery-charge-limit.rules`](system/etc/udev/rules.d/99-battery-charge-limit.rules) makes `BAT1/charge_control_end_threshold` writable (0666). Default value: **80%** (managed day-to-day afterwards by the GNOME widget, section 6). TLP's `START/STOP_CHARGE_THRESH_BAT*` settings exist in `/etc/tlp.conf` but are **commented out/disabled**: the threshold is therefore neither driven nor persisted by TLP, just made manually adjustable.
+- **Battery charge threshold**: [`99-battery-charge-limit.rules`](system/etc/udev/rules.d/99-battery-charge-limit.rules) makes `BAT1/charge_control_end_threshold` writable (0666). Default value: **80%** (managed day-to-day afterwards by the GNOME widget, section 7). TLP's `START/STOP_CHARGE_THRESH_BAT*` settings exist in `/etc/tlp.conf` but are **commented out/disabled**: the threshold is therefore neither driven nor persisted by TLP, just made manually adjustable.
 
 - **⚠️ Note (intended behavior, not a bug)**: the patched Wi-Fi driver (`mt7921_disable_aspm=true` by default) disables ASPM **specifically for the MT7922 card**, regardless of the global ASPM policy driven by TLP. Other PCIe devices (NVMe, etc.) do follow TLP's AC/battery switching, but Wi-Fi always stays with ASPM disabled (even on battery) to avoid micro-stutter — don't "fix" this thinking it's an inconsistency.
 
-#### 6. GNOME Widget: 80% / 100% Battery Charge Toggle
+#### 6. Keyboard Backlight Idle Timeout (Battery Only)
+
+On battery, [`kbd-backlight-idle.sh`](system/usr/local/bin/kbd-backlight-idle.sh) turns the keyboard backlight off after **1 minute** without any keyboard/trackpad activity, and restores the previous brightness as soon as activity resumes or AC is plugged back in. Run as a `systemd --user` service, [`kbd-backlight-idle.service`](system/etc/systemd/user/kbd-backlight-idle.service), deployed to `/etc/systemd/user/` by `install.sh`.
+
+- **Idle detection**: polls Mutter's `IdleMonitor` over the **session** D-Bus bus (`org.gnome.Mutter.IdleMonitor.GetIdletime`) every 5 seconds — works under Wayland, unlike `xprintidle`, which needs X11.
+- **Backlight control**: reads/writes brightness through UPower's `org.freedesktop.UPower.KbdBacklight` interface on the **system** bus, rather than writing `/sys/class/leds/asus::kbd_backlight/brightness` directly — this is callable by a regular user with no polkit prompt and no udev permission hack needed, and isn't tied to this specific LED's sysfs name.
+- **AC/battery check**: same `/sys/class/power_supply/AC*/online` (or `ADP*`) read used by `wifi-power-mode.sh` (section 5). On AC, any saved brightness is restored immediately and the idle check is skipped entirely.
+- **State**: the brightness value the script dimmed *from* is saved to `$XDG_RUNTIME_DIR/vivonux-kbd-backlight-saved` so it can restore the exact previous level rather than assuming a fixed value. If the backlight was already off before the idle timer fired (user turned it off manually), no state file is written and nothing gets touched on resume.
+
+**⚠️ Pitfall found in testing**: a first version parsed `GetIdletime`'s `(uint64 5051,)` output with a naive `grep -oE '[0-9]+'`, which also matches the "64" inside the literal word `uint64` and breaks the numeric comparison. Fixed by anchoring the extraction to the value following `uint64` specifically (`sed -n 's/.*uint64 \([0-9]\+\).*/\1/p'`). If this script is ever touched again, don't reintroduce a blind digit-grep on raw `gdbus call` output.
+
+Tune the threshold/poll interval without editing the script via environment variables in the unit file (`VIVONUX_KBD_IDLE_MS`, default `60000`; `VIVONUX_KBD_POLL_SECONDS`, default `5`).
+
+#### 7. GNOME Widget: 80% / 100% Battery Charge Toggle
 
 To occasionally allow charging to 100% (e.g. before a trip) without permanently giving up the 80% cap that preserves battery health, a GNOME Shell extension provides a toggle in the **Quick Settings** menu (next to Wi-Fi/Bluetooth):
 
@@ -120,7 +133,7 @@ If the toggle doesn't show up after a GNOME Shell update, check version compatib
 journalctl --user -u gnome-shell --since "-5 min" | grep -i charge
 ```
 
-#### 7. Full Hardware Integration
+#### 8. Full Hardware Integration
 
 - **Driver coverage**: based on Ubuntu's `/boot/config-$(uname -r)` configuration to keep every generic hardware driver (USB, HDA audio, Wi-Fi, Bluetooth, Radeon 890M GPU, NVMe...).
 - **Debug info stripped (`CONFIG_DEBUG_INFO=n`)**: cuts build time by 10x and significantly shrinks the kernel image size.
@@ -294,11 +307,24 @@ En complément des réglages kernel ci-dessus, la bascule secteur/batterie repos
 
 - **[`wifi-power-mode.sh`](system/usr/local/bin/wifi-power-mode.sh)** (déployé vers `/usr/local/bin/`) + règle udev [`99-wifi-power-mode.rules`](system/etc/udev/rules.d/99-wifi-power-mode.rules) déclenchée sur tout événement `power_supply` : gère la puissance d'émission (txpower, norme FR) en secteur/batterie. TLP gère *aussi* le power-save Wi-Fi de son côté (`WIFI_PWR_ON_AC/BAT`) — redondant avec ce script mais sans conflit, les deux convergent vers la même valeur.
 
-- **Seuil de charge batterie** : [`99-battery-charge-limit.rules`](system/etc/udev/rules.d/99-battery-charge-limit.rules) rend `BAT1/charge_control_end_threshold` accessible en écriture (0666). Valeur par défaut : **80 %** (géré ensuite au jour le jour par le widget GNOME, section 6). Les paramètres `START/STOP_CHARGE_THRESH_BAT*` de TLP existent dans `/etc/tlp.conf` mais sont **commentés/désactivés** : le seuil n'est donc pas piloté ni persisté par TLP, seulement rendu modifiable manuellement.
+- **Seuil de charge batterie** : [`99-battery-charge-limit.rules`](system/etc/udev/rules.d/99-battery-charge-limit.rules) rend `BAT1/charge_control_end_threshold` accessible en écriture (0666). Valeur par défaut : **80 %** (géré ensuite au jour le jour par le widget GNOME, section 7). Les paramètres `START/STOP_CHARGE_THRESH_BAT*` de TLP existent dans `/etc/tlp.conf` mais sont **commentés/désactivés** : le seuil n'est donc pas piloté ni persisté par TLP, seulement rendu modifiable manuellement.
 
 - **⚠️ Point d'attention (comportement voulu, pas un bug)** : le driver Wi-Fi patché (`mt7921_disable_aspm=true` par défaut) désactive l'ASPM **spécifiquement pour la carte MT7922**, quelle que soit la policy ASPM globale pilotée par TLP. Les autres périphériques PCIe (NVMe...) suivent bien la bascule secteur/batterie de TLP, mais le Wi-Fi reste toujours en ASPM désactivé (même sur batterie) pour éviter les micro-saccades — ne pas "corriger" ça en pensant à une incohérence.
 
-#### 6. Widget GNOME : Bascule Charge Batterie 80% / 100%
+#### 6. Extinction du rétroéclairage clavier après inactivité (batterie seulement)
+
+Sur batterie, [`kbd-backlight-idle.sh`](system/usr/local/bin/kbd-backlight-idle.sh) éteint le rétroéclairage du clavier après **1 minute** sans activité clavier/trackpad, et restaure la luminosité précédente dès qu'une activité reprend ou que le secteur est rebranché. Tourne en tant que service `systemd --user`, [`kbd-backlight-idle.service`](system/etc/systemd/user/kbd-backlight-idle.service), déployé dans `/etc/systemd/user/` par `install.sh`.
+
+- **Détection d'inactivité** : interroge l'`IdleMonitor` de Mutter sur le bus D-Bus **session** (`org.gnome.Mutter.IdleMonitor.GetIdletime`) toutes les 5 secondes — fonctionne sous Wayland, contrairement à `xprintidle` qui nécessite X11.
+- **Contrôle du rétroéclairage** : lit/écrit la luminosité via l'interface UPower `org.freedesktop.UPower.KbdBacklight` sur le bus **système**, plutôt que d'écrire directement `/sys/class/leds/asus::kbd_backlight/brightness` — appelable par un utilisateur normal sans invite polkit ni bidouille de permission udev, et indépendant du nom sysfs exact de ce LED.
+- **Vérification secteur/batterie** : même lecture de `/sys/class/power_supply/AC*/online` (ou `ADP*`) que `wifi-power-mode.sh` (section 5). Sur secteur, toute luminosité sauvegardée est restaurée immédiatement et la vérification d'inactivité est entièrement sautée.
+- **État** : la valeur de luminosité depuis laquelle le script a éteint est sauvegardée dans `$XDG_RUNTIME_DIR/vivonux-kbd-backlight-saved`, pour restaurer le niveau exact précédent plutôt que de supposer une valeur fixe. Si le rétroéclairage était déjà éteint avant le déclenchement du minuteur d'inactivité (éteint manuellement par l'utilisateur), aucun fichier d'état n'est écrit et rien n'est touché à la reprise.
+
+**⚠️ Piège trouvé en testant** : une première version parsait la sortie `(uint64 5051,)` de `GetIdletime` avec un `grep -oE '[0-9]+'` naïf, qui capture aussi le "64" contenu dans le mot littéral `uint64` et casse la comparaison numérique. Corrigé en ancrant l'extraction sur la valeur qui suit `uint64` spécifiquement (`sed -n 's/.*uint64 \([0-9]\+\).*/\1/p'`). Si ce script est retouché un jour, ne pas réintroduire un grep de chiffres aveugle sur la sortie brute de `gdbus call`.
+
+Le seuil et l'intervalle de sondage se réglent sans toucher au script via des variables d'environnement dans le fichier d'unité (`VIVONUX_KBD_IDLE_MS`, défaut `60000` ; `VIVONUX_KBD_POLL_SECONDS`, défaut `5`).
+
+#### 7. Widget GNOME : Bascule Charge Batterie 80% / 100%
 
 Pour autoriser ponctuellement la charge à 100% (ex. avant un déplacement) sans renoncer en permanence à la limite de 80% qui préserve la santé de la batterie, une extension GNOME Shell fournit un toggle dans le menu **Quick Settings** (à côté du Wi-Fi/Bluetooth) :
 
@@ -313,7 +339,7 @@ Si le toggle n'apparaît pas après une mise à jour de GNOME Shell, vérifier l
 journalctl --user -u gnome-shell --since "-5 min" | grep -i charge
 ```
 
-#### 7. Intégration Matérielle Complète
+#### 8. Intégration Matérielle Complète
 
 - **Conservation des pilotes** : Basé sur la configuration `/boot/config-$(uname -r)` d'Ubuntu pour conserver l'intégralité des pilotes matériels génériques (USB, audio HDA, Wi-Fi, Bluetooth, GPU Radeon 890M, NVMe...).
 - **Suppression du débogage (`CONFIG_DEBUG_INFO=n`)** : Divise par 10 le temps de compilation et allège considérablement la taille de l'image noyau.

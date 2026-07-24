@@ -58,6 +58,9 @@ sudo cp -v "$VIVONUX_DIR/system/etc/udev/rules.d/99-wifi-power-mode.rules" /etc/
 sudo cp -v "$VIVONUX_DIR/system/etc/udev/rules.d/99-battery-charge-limit.rules" /etc/udev/rules.d/
 sudo cp -v "$VIVONUX_DIR/system/etc/sysctl.d/99-pehacorp-network.conf" /etc/sysctl.d/
 sudo install -m 0755 "$VIVONUX_DIR/system/usr/local/bin/wifi-power-mode.sh" /usr/local/bin/wifi-power-mode.sh
+sudo install -m 0755 "$VIVONUX_DIR/system/usr/local/bin/kbd-backlight-idle.sh" /usr/local/bin/kbd-backlight-idle.sh
+sudo mkdir -p /etc/systemd/user
+sudo cp -v "$VIVONUX_DIR/system/etc/systemd/user/kbd-backlight-idle.service" /etc/systemd/user/
 
 sudo udevadm control --reload-rules
 sudo udevadm trigger
@@ -72,6 +75,13 @@ fi
 sudo systemctl mask power-profiles-daemon 2>/dev/null || true
 
 sudo sysctl --system >/dev/null
+
+if command -v gdbus >/dev/null 2>&1; then
+    systemctl --user daemon-reload
+    systemctl --user enable --now kbd-backlight-idle.service
+else
+    echo "gdbus introuvable (paquet libglib2.0-bin) — service de rétroéclairage clavier ignoré."
+fi
 
 # --- 4. Extension GNOME (Charge Complète BAT1) --------------------------
 echo ""
