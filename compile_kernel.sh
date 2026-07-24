@@ -102,6 +102,13 @@ echo "5. Application des optimisations énergétiques, de jeu et du suffixe..."
 # Préemption dynamique (full pour le jeu, voluntary pour la batterie)
 ./scripts/config --enable CONFIG_PREEMPT_DYNAMIC
 
+# TCP BBR (requis par /etc/sysctl.d/99-pehacorp-network.conf) : forcé explicitement
+# à chaque build, sinon un olddefconfig sur une base .config qui ne l'a plus (ça
+# arrive lors d'un saut de version) le laisse désactivé silencieusement — vécu le
+# 24/07/2026 sur le noyau 7.1.4-pehacorp (CONFIG_TCP_CONG_BBR absent alors que la
+# config Ubuntu générique de base l'avait en module).
+./scripts/config --enable CONFIG_TCP_CONG_BBR
+
 # Désactivation des certificats de confiance spécifiques à Ubuntu (évite les erreurs de clé manquante)
 ./scripts/config --set-str CONFIG_SYSTEM_TRUSTED_KEYS ""
 ./scripts/config --set-str CONFIG_SYSTEM_REVOCATION_KEYS ""

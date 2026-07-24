@@ -84,6 +84,7 @@ full hardware base, with the following performance and power-saving optimization
   - **Extended AMPDU aggregation** for Wi-Fi 6/6E to unlock both downstream and upstream throughput.
 - **Linux network stack tuning** ([`system/etc/sysctl.d/99-pehacorp-network.conf`](system/etc/sysctl.d/99-pehacorp-network.conf), deployed to `/etc/sysctl.d/`):
   - `netdev_max_backlog = 65536` receive backlog and 64 MB TCP buffers with **TCP BBR** congestion control.
+  - **⚠️ Regression found and fixed (2026-07-24)**: `compile_kernel.sh` now explicitly forces `CONFIG_TCP_CONG_BBR` on. Without that, the module can silently disappear across incremental builds/version jumps even though Ubuntu's own base config ships it — this happened for real on the `7.1.4-pehacorp` kernel (BBR simply wasn't there anymore), which made `sudo sysctl --system` fail on `net.ipv4.tcp_congestion_control` and, without the `install.sh` fix below, aborted the whole install. `install.sh` no longer treats one unavailable sysctl key as fatal.
 - **Dynamic AC vs battery handling (French ARCEP / ETSI regulation)**:
   - **On AC power**: automatically switches radio transmit power to the French legal cap (**20 dBm / 100 mW**) and disables Wi-Fi Power Save.
   - **On battery**: automatically reverts to `txpower auto` mode and enables Wi-Fi Power Save to preserve battery life.
@@ -290,6 +291,7 @@ Le noyau est compilé à partir des sources officielles **Mainline (kernel.org)*
   - **Extension de l'agrégation AMPDU** Wi-Fi 6/6E pour débrider les débits descendants et montants.
 - **Optimisations de la Pile Réseau Linux** ([`system/etc/sysctl.d/99-pehacorp-network.conf`](system/etc/sysctl.d/99-pehacorp-network.conf), déployé vers `/etc/sysctl.d/`) :
   - Backlog de réception `netdev_max_backlog = 65536` et buffers TCP de 64 Mo avec contrôle de congestion **TCP BBR**.
+  - **⚠️ Régression trouvée et corrigée (24/07/2026)** : `compile_kernel.sh` force désormais explicitement `CONFIG_TCP_CONG_BBR`. Sans ça, le module peut disparaître silencieusement au fil des builds incrémentaux/sauts de version même si la config Ubuntu de base l'embarque — c'est arrivé pour de vrai sur le noyau `7.1.4-pehacorp` (BBR n'était simplement plus là), ce qui a fait échouer `sudo sysctl --system` sur `net.ipv4.tcp_congestion_control` et, sans le correctif `install.sh` ci-dessous, interrompait toute l'installation. `install.sh` ne traite plus une clé sysctl indisponible comme fatale.
 - **Gestion Dynamique SECTEUR vs BATTERIE (Normes ARCEP / ETSI `FR`)** :
   - **Sur SECTEUR (AC)** : Bascule automatique de la puissance d'émission radio au plafond légal français (**20 dBm / 100 mW**) et désactivation du Wi-Fi Power Save.
   - **Sur BATTERIE (BAT)** : Retour automatique en mode `txpower auto` et Wi-Fi Power Save activé pour préserver la batterie.

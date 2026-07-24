@@ -74,7 +74,7 @@ else
 fi
 sudo systemctl mask power-profiles-daemon 2>/dev/null || true
 
-sudo sysctl --system >/dev/null
+sudo sysctl --system >/dev/null 2>&1 || echo "  (avertissement : au moins une clé sysctl n'a pas pu s'appliquer — normal si le module tcp_bbr n'est pas encore chargé sur le noyau actuel, sera résolu après le prochain reboot sur le noyau -pehacorp fraîchement compilé)"
 
 if command -v gdbus >/dev/null 2>&1; then
     systemctl --user daemon-reload
