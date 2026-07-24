@@ -37,7 +37,7 @@ fi
 # --- 2. Build dependencies ------------------------------------------------
 echo ""
 echo "=== 2. Build dependencies ==="
-DEPS=(build-essential libncurses-dev flex bison libssl-dev libelf-dev dwarves python3)
+DEPS=(build-essential libncurses-dev flex bison libssl-dev libelf-dev dwarves python3 python3-dbus)
 MISSING=()
 for pkg in "${DEPS[@]}"; do
     dpkg -s "$pkg" >/dev/null 2>&1 || MISSING+=("$pkg")
@@ -59,8 +59,18 @@ sudo cp -v "$VIVONUX_DIR/system/etc/udev/rules.d/99-battery-charge-limit.rules" 
 sudo cp -v "$VIVONUX_DIR/system/etc/sysctl.d/99-pehacorp-network.conf" /etc/sysctl.d/
 sudo install -m 0755 "$VIVONUX_DIR/system/usr/local/bin/wifi-power-mode.sh" /usr/local/bin/wifi-power-mode.sh
 sudo install -m 0755 "$VIVONUX_DIR/system/usr/local/bin/kbd-backlight-idle.sh" /usr/local/bin/kbd-backlight-idle.sh
+sudo install -m 0755 "$VIVONUX_DIR/system/usr/local/bin/auto-refresh-rate.py" /usr/local/bin/auto-refresh-rate.py
 sudo mkdir -p /etc/systemd/user
 sudo cp -v "$VIVONUX_DIR/system/etc/systemd/user/kbd-backlight-idle.service" /etc/systemd/user/
+sudo cp -v "$VIVONUX_DIR/system/etc/systemd/user/auto-refresh-rate.service" /etc/systemd/user/
+
+# Migrate away from any pre-VivoNux copy of the refresh-rate service that
+# lived in the user's home (pointed at a script outside this repo).
+if [ -f "$HOME/.config/systemd/user/auto-refresh-rate.service" ]; then
+    echo "Removing the stale user-local auto-refresh-rate.service (replaced by /etc/systemd/user/)..."
+    systemctl --user disable --now auto-refresh-rate.service 2>/dev/null || true
+    rm -f "$HOME/.config/systemd/user/auto-refresh-rate.service"
+fi
 
 sudo udevadm control --reload-rules
 sudo udevadm trigger
@@ -79,8 +89,9 @@ sudo sysctl --system >/dev/null 2>&1 || echo "  (warning: at least one sysctl ke
 if command -v gdbus >/dev/null 2>&1; then
     systemctl --user daemon-reload
     systemctl --user enable --now kbd-backlight-idle.service
+    systemctl --user enable --now auto-refresh-rate.service
 else
-    echo "gdbus not found (libglib2.0-bin package) — keyboard backlight service skipped."
+    echo "gdbus not found (libglib2.0-bin package) — keyboard backlight and refresh-rate services skipped."
 fi
 
 # --- 4. GNOME extension (Full Charge BAT1) --------------------------------

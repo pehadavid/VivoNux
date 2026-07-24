@@ -85,9 +85,19 @@ echo "5. Applying power-saving, gaming and suffix optimizations..."
 # Kernel suffix
 ./scripts/config --set-str CONFIG_LOCALVERSION "-pehacorp"
 
-# Power-saving optimizations
-./scripts/config --enable CONFIG_RCU_LAZY
+# Power-saving optimizations.
+# The whole RCU chain must be enabled explicitly: RCU_NOCB_CPU depends on
+# RCU_EXPERT, and RCU_LAZY depends on RCU_NOCB_CPU — without RCU_EXPERT,
+# olddefconfig silently drops all of them (found missing for real in the
+# installed 7.1.4-pehacorp config on 2026-07-24, same failure mode as the
+# BBR regression below). RCU_NOCB_CPU_DEFAULT_ALL offloads every CPU without
+# needing an rcu_nocbs= boot parameter, which is what makes RCU_LAZY
+# actually take effect.
+./scripts/config --enable CONFIG_RCU_EXPERT
 ./scripts/config --enable CONFIG_RCU_NOCB_CPU
+./scripts/config --enable CONFIG_RCU_NOCB_CPU_DEFAULT_ALL
+./scripts/config --enable CONFIG_RCU_LAZY
+./scripts/config --disable CONFIG_RCU_LAZY_DEFAULT_OFF
 ./scripts/config --enable CONFIG_NO_HZ_IDLE
 ./scripts/config --disable CONFIG_NO_HZ_FULL
 
@@ -125,6 +135,33 @@ echo "5. Applying power-saving, gaming and suffix optimizations..."
 
 echo "6. Applying defaults for new options introduced in $LATEST_STABLE..."
 make olddefconfig
+
+echo "6b. Verifying that no critical option was silently dropped by olddefconfig..."
+# Guard against the BBR/RCU class of regression: an option we force above can
+# be discarded without any error if one of its dependencies is missing in the
+# base config. Fail the build instead of shipping a kernel without them.
+CRITICAL_OPTIONS=(
+    CONFIG_RCU_EXPERT
+    CONFIG_RCU_NOCB_CPU
+    CONFIG_RCU_NOCB_CPU_DEFAULT_ALL
+    CONFIG_RCU_LAZY
+    CONFIG_TCP_CONG_BBR
+    CONFIG_HZ_1000
+    CONFIG_SCHED_MC_PRIO
+    CONFIG_PREEMPT_DYNAMIC
+)
+CONFIG_ERRORS=0
+for opt in "${CRITICAL_OPTIONS[@]}"; do
+    if ! grep -qE "^${opt}=(y|m)$" .config; then
+        echo "ERROR: $opt is missing from the final .config (silently dropped by olddefconfig)."
+        CONFIG_ERRORS=1
+    fi
+done
+if [ "$CONFIG_ERRORS" -ne 0 ]; then
+    echo "Aborting the build: fix the dependency chain in compile_kernel.sh first."
+    exit 1
+fi
+echo "All critical options verified present."
 
 echo "7. Starting the native Zen 5 build..."
 echo "Debian packages will be generated in $KERNEL_DIR."

@@ -55,6 +55,11 @@ class BatteryChargeToggle extends QuickSettings.QuickToggle {
                 }
             }
 
+            // Track the real state ourselves; QuickToggle flips `checked`
+            // on click before the `clicked` signal fires, so it can't be
+            // trusted as the source of truth for what was last written.
+            this._limit = limit;
+
             // If the limit is 100, "Full Charge" is enabled (checked = true)
             this.checked = (limit === '100');
             this.subtitle = this.checked ? _('On (100%)') : _('Limited (80%)');
@@ -77,7 +82,7 @@ class BatteryChargeToggle extends QuickSettings.QuickToggle {
 
     _toggleLimit() {
         try {
-            const newValue = this.checked ? '100' : '80';
+            const newValue = this._limit === '100' ? '80' : '100';
 
             // Update the persistent config
             GLib.file_set_contents(CONF_PATH, newValue);
@@ -87,6 +92,8 @@ class BatteryChargeToggle extends QuickSettings.QuickToggle {
                 writeSysfs(THRESHOLD_PATH, newValue);
             }
 
+            this._limit = newValue;
+            this.checked = (newValue === '100');
             this.subtitle = this.checked ? _('On (100%)') : _('Limited (80%)');
         } catch (e) {
             console.error(e);

@@ -45,6 +45,25 @@ sudo sed -i 's|^GRUB_DEFAULT=.*|GRUB_DEFAULT="Advanced options for Ubuntu>Ubuntu
 sudo sed -i 's/^GRUB_TIMEOUT_STYLE=.*/GRUB_TIMEOUT_STYLE=menu/' "$GRUB_FILE"
 sudo sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=5/' "$GRUB_FILE"
 
+# 3. Kernel command line (tracked here so the repo is the single source of truth).
+#    - amdgpu.abmlevel=3              : static ABM level. On this OLED panel, the driver
+#      reports aux_support=true unconditionally (drivers/gpu/drm/amd/display/amdgpu_dm/
+#      amdgpu_dm.c: amdgpu_dm_should_create_sysfs()), so panel_power_savings never
+#      appears in sysfs, and the DRM ABM property is explicitly withheld for OLED
+#      panels too (same file, ~line 5498) — this boot parameter is the ONLY way to
+#      set ABM on this hardware. Leaving it unset doesn't make ABM "dynamic", it
+#      leaves amdgpu_dm_abm_level at its default (-1), which the driver then forces
+#      to ABM_LEVEL_IMMEDIATE_DISABLE (same file, ~line 7911) — i.e. ABM permanently
+#      OFF on both AC and battery. Confirmed the hard way on 2026-07-24: don't remove
+#      this again to chase a dynamic AC/battery ABM switch, it isn't possible here.
+#    - amd_prefcore=enable            : AMD Preferred Cores (Zen 5 / Zen 5c steering)
+#    - workqueue.power_efficient=y    : power-efficient workqueues
+#    - nmi_watchdog=0                 : no periodic NMI wakeups
+#    - split_lock_detect=off          : no split-lock penalty (gaming)
+#    - cpuidle.governor=teo           : better C-state selection than menu on modern Zen
+CMDLINE='quiet splash amdgpu.abmlevel=3 amd_prefcore=enable workqueue.power_efficient=y nmi_watchdog=0 split_lock_detect=off cpuidle.governor=teo'
+sudo sed -i 's|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT="'"$CMDLINE"'"|' "$GRUB_FILE"
+
 echo ""
 echo "=== 5. Applying the GRUB configuration ==="
 sudo update-grub

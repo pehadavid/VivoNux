@@ -1,0 +1,12 @@
+[Unit]
+Description=Automatic display refresh rate switching (60 Hz on battery / 120 Hz on AC)
+After=gnome-session.target
+
+[Service]
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /usr/local/bin/auto-refresh-rate.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
