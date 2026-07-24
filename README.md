@@ -17,6 +17,12 @@ this on another machine without reading every section below first.
 The mantra: **performance on AC power, battery life on battery**, while keeping every generic
 Ubuntu hardware driver intact (nothing is removed, only tuned/patched).
 
+⚠️ **Secure Boot must be disabled first.** The `-pehacorp` kernel is self-compiled and unsigned
+(`compile_kernel.sh` resets `CONFIG_SYSTEM_TRUSTED_KEYS`/`CONFIG_SYSTEM_REVOCATION_KEYS`), so with
+Secure Boot enabled the firmware will refuse to boot it (or the third-party Wi-Fi/GPU modules will
+fail to load). Disable Secure Boot in the UEFI/BIOS settings **before** running `install.sh` or
+`update_kernel_master.sh`.
+
 ### 🚀 Quick install
 
 On a freshly installed Ubuntu, on an identical machine:
@@ -226,6 +232,12 @@ Ne l'installe pas sur une autre machine sans relire chaque section ci-dessous.
 
 Le mantra : **perf sur secteur, autonomie sur batterie**, en gardant l'intégralité des pilotes
 matériels génériques d'Ubuntu (rien n'est retiré, seulement optimisé/patché).
+
+⚠️ **Il faut d'abord désactiver le Secure Boot.** Le noyau `-pehacorp` est auto-compilé et non
+signé (`compile_kernel.sh` réinitialise `CONFIG_SYSTEM_TRUSTED_KEYS`/`CONFIG_SYSTEM_REVOCATION_KEYS`),
+donc avec le Secure Boot activé, le firmware refusera de le démarrer (ou les modules tiers
+Wi-Fi/GPU refuseront de se charger). Désactive le Secure Boot dans le BIOS/UEFI **avant** de lancer
+`install.sh` ou `update_kernel_master.sh`.
 
 ### 🚀 Installation rapide
 
