@@ -1,0 +1,12 @@
+# Sources noyau téléchargées/extraites et artefacts de compilation --
+# tout ça se régénère avec install.sh / compile_kernel.sh, ne doit jamais
+# finir dans git (plusieurs Go par version).
+linux-*/
+linux-*.tar.*
+linux_*.tar.*
+linux_*.diff*
+linux_*.dsc
+*.deb
+*.buildinfo
+*.changes
+*_TESTCOPY

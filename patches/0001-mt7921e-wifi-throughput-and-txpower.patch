@@ -1,0 +1,40 @@
+From: Pehacorp Kernel Optimization <kernel@pehacorp.local>
+Date: Fri, 24 Jul 2026 07:33:00 +0200
+Subject: [PATCH] wifi: mt76: mt7921: optimize MT7922 throughput, ASPM, RX ring size and TX power headroom
+
+Disable ASPM by default for MT7922 PCI wireless controllers to avoid PCIe L1/L1ss
+latency spikes, and report the regulatory-limited max txpower of the active
+channel in mt76_get_txpower instead of only the raw hardware calibration value.
+
+NOTE: the RX_RING_SIZE bump to 4096 was reverted (2026-07-24) - it reliably
+caused 4-way handshake timeouts (reason 15) on every association attempt,
+while the same kernel without it held a wifi connection for 27+ minutes.
+Keep at the stock 1536 until the ring-size regression is root-caused upstream.
+
+Signed-off-by: Pehacorp Kernel Optimization <kernel@pehacorp.local>
+
+--- a/drivers/net/wireless/mediatek/mt76/mt7921/pci.c
++++ b/drivers/net/wireless/mediatek/mt76/mt7921/pci.c
+@@ -31,7 +31,7 @@
+ 	{ },
+ };
+
+-static bool mt7921_disable_aspm;
++static bool mt7921_disable_aspm = true;
+ module_param_named(disable_aspm, mt7921_disable_aspm, bool, 0644);
+ MODULE_PARM_DESC(disable_aspm, "disable PCI ASPM support");
+
+--- a/drivers/net/wireless/mediatek/mt76/mac80211.c
++++ b/drivers/net/wireless/mediatek/mt76/mac80211.c
+@@ -1794,6 +1794,11 @@
+ 	if (!phy)
+ 		return -EINVAL;
+
++	if (phy->main_chandef.chan && phy->main_chandef.chan->max_power > 0) {
++		*dbm = phy->main_chandef.chan->max_power;
++		return 0;
++	}
++
+ 	n_chains = hweight16(phy->chainmask);
+ 	delta = mt76_tx_power_path_delta(n_chains);
+ 	*dbm = DIV_ROUND_UP(phy->txpower_cur + delta, 2);

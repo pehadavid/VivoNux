@@ -1,0 +1,15 @@
+{
+  "name": "Charge Complète BAT1",
+  "description": "Permet de basculer la limite de charge batterie de 80% à 100% depuis le menu Quick Settings de GNOME.",
+  "uuid": "charge-complete-bat1@peha",
+  "shell-version": [
+    "45",
+    "46",
+    "47",
+    "48",
+    "49",
+    "50",
+    "51"
+  ],
+  "url": ""
+}

@@ -1,0 +1,1 @@
+ACTION=="add|change", SUBSYSTEM=="power_supply", KERNEL=="BAT1", RUN+="/bin/chmod 0666 /sys/class/power_supply/BAT1/charge_control_end_threshold"
