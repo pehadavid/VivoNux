@@ -22,7 +22,7 @@ Ubuntu hardware driver intact (nothing is removed, only tuned/patched).
 On a freshly installed Ubuntu, on an identical machine:
 
 ```bash
-git clone <repo-url> VivoNux
+git clone https://github.com/pehadavid/VivoNux.git
 cd VivoNux
 ./install.sh
 ```
@@ -161,6 +161,7 @@ cd VivoNux
    - Sets the new `-pehacorp` kernel as the **default boot kernel**.
    - Keeps a **5-second GRUB menu delay** so you can easily boot back into the generic Ubuntu kernel if something goes wrong.
 5. **GRUB update**: runs `sudo update-grub`.
+6. **Build cleanup**: keeps only the **3 most recent** `-pehacorp` builds (`.deb` packages + `.buildinfo`/`.changes`) in the repo directory, removing older ones to avoid piling up several GB over time. This only touches build artifacts on disk — never the currently installed kernel packages or `/boot`.
 
 All that's left is to reboot:
 ```bash
@@ -231,7 +232,7 @@ matériels génériques d'Ubuntu (rien n'est retiré, seulement optimisé/patch�
 Sur un Ubuntu fraîchement installé sur une machine identique :
 
 ```bash
-git clone <url-du-dépôt> VivoNux
+git clone https://github.com/pehadavid/VivoNux.git
 cd VivoNux
 ./install.sh
 ```
@@ -369,6 +370,7 @@ cd VivoNux
    - Définit le nouveau noyau `-pehacorp` comme **noyau par défaut au démarrage**.
    - Maintient un **délai de 5 secondes au menu GRUB** pour te laisser la possibilité de démarrer facilement sur le noyau générique Ubuntu en cas d'imprévu.
 5. **Mise à jour GRUB** : Exécute `sudo update-grub`.
+6. **Nettoyage des builds** : ne garde que les **3 builds `-pehacorp` les plus récentes** (paquets `.deb` + `.buildinfo`/`.changes`) dans le dossier du dépôt, en supprimant les plus anciennes pour éviter d'accumuler plusieurs Go au fil du temps. Ça ne touche qu'aux artefacts de build sur disque — jamais aux paquets noyau réellement installés ni à `/boot`.
 
 Il ne te reste plus qu'à redémarrer :
 ```bash
