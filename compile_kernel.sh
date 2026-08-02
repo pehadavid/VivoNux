@@ -5,43 +5,79 @@ set -e
 KERNEL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$KERNEL_DIR"
 
-echo "1. Querying the kernel.org API for the latest stable version..."
-LATEST_STABLE=$(python3 -c "
-import urllib.request, json
+KERNEL_CHANNEL="${VIVONUX_KERNEL_CHANNEL:-stable}"
+case "$KERNEL_CHANNEL" in
+    stable|rc|beta) ;;
+    *)
+        echo "ERROR: unrecognized VIVONUX_KERNEL_CHANNEL '$KERNEL_CHANNEL' (expected stable, rc or beta)."
+        exit 1
+        ;;
+esac
+echo "1. Querying the kernel.org API for the '$KERNEL_CHANNEL' channel..."
+KERNEL_INFO=$(python3 -c "
+import urllib.request, json, re, sys
+
+channel = '$KERNEL_CHANNEL'
 try:
     with urllib.request.urlopen('https://kernel.org/releases.json') as response:
         data = json.loads(response.read().decode())
-        print(data['latest_stable']['version'])
 except Exception as e:
-    import sys
     print(f'ERROR: {e}', file=sys.stderr)
     sys.exit(1)
+
+if channel == 'stable':
+    rel = data['latest_stable']
+    rel = [r for r in data['releases'] if r['moniker'] == 'stable' and r['version'] == rel['version']][0]
+else:
+    mainline = next((r for r in data['releases'] if r['moniker'] == 'mainline'), None)
+    if mainline is None:
+        print('ERROR: no mainline release published on kernel.org', file=sys.stderr)
+        sys.exit(1)
+    is_rc = bool(re.search(r'-rc[0-9]+\$', mainline['version']))
+    if channel == 'rc' and not is_rc:
+        print('ERROR: no RC currently published (mainline is in the pre-rc1 merge window)', file=sys.stderr)
+        sys.exit(1)
+    if channel == 'beta' and is_rc:
+        print('ERROR: no beta snapshot currently published (mainline is in RC phase)', file=sys.stderr)
+        sys.exit(1)
+    rel = mainline
+
+print(rel['version'])
+print(rel['source'])
 ")
+KERNEL_VERSION=$(echo "$KERNEL_INFO" | sed -n '1p')
+SOURCE_URL=$(echo "$KERNEL_INFO" | sed -n '2p')
 
-echo "Latest stable version identified: $LATEST_STABLE"
+echo "Version identified: $KERNEL_VERSION"
+if [ "$KERNEL_CHANNEL" != "stable" ]; then
+    echo "NOTE: '$KERNEL_CHANNEL' channel selected -- this build will NOT be set as the GRUB default kernel."
+fi
 
-SOURCE_URL=$(python3 -c "
-import urllib.request, json
-try:
-    with urllib.request.urlopen('https://kernel.org/releases.json') as response:
-        data = json.loads(response.read().decode())
-        stable = [r for r in data['releases'] if r['moniker'] == 'stable' and r['version'] == '$LATEST_STABLE'][0]
-        print(stable['source'])
-except Exception as e:
-    import sys
-    print(f'ERROR: {e}', file=sys.stderr)
-    sys.exit(1)
-")
+SRC_DIR="linux-$KERNEL_VERSION"
 
-TARBALL="linux-$LATEST_STABLE.tar.xz"
-SRC_DIR="linux-$LATEST_STABLE"
+if [ "$KERNEL_CHANNEL" = "stable" ]; then
+    TARBALL="linux-$KERNEL_VERSION.tar.xz"
+else
+    # kernel.org's own source for mainline/rc (git.kernel.org/torvalds/t/...)
+    # sits behind an Anubis anti-bot JS challenge and rejects plain scripted
+    # downloads with HTTP 403 -- use GitHub's official read-only mirror of
+    # Linus' tree instead, which serves every tag/branch without that gate.
+    if [ "$KERNEL_CHANNEL" = "rc" ]; then
+        SOURCE_URL="https://github.com/torvalds/linux/archive/refs/tags/v${KERNEL_VERSION}.tar.gz"
+    else
+        SOURCE_URL="https://github.com/torvalds/linux/archive/refs/heads/master.tar.gz"
+    fi
+    TARBALL="linux-$KERNEL_VERSION.tar.gz"
+fi
 
 echo "2. Downloading sources from $SOURCE_URL..."
 if [ ! -f "$TARBALL" ]; then
     python3 -c "
 import urllib.request
 print('Downloading (this can take a minute)...')
-urllib.request.urlretrieve('$SOURCE_URL', '$TARBALL')
+req = urllib.request.Request('$SOURCE_URL', headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req) as response, open('$TARBALL', 'wb') as out:
+    out.write(response.read())
 print('Download complete.')
 "
 else
@@ -50,7 +86,14 @@ fi
 
 echo "3. Extracting the archive..."
 if [ ! -d "$SRC_DIR" ]; then
+    # The GitHub mirror names the top-level directory after the ref (e.g. a
+    # 'master' branch snapshot extracts as 'linux-master', not '$SRC_DIR') --
+    # extract then rename so incremental-build detection above keeps working.
+    TOP_DIR=$(tar -tf "$TARBALL" | head -n1 | cut -d/ -f1)
     tar -xf "$TARBALL"
+    if [ "$TOP_DIR" != "$SRC_DIR" ]; then
+        mv "$TOP_DIR" "$SRC_DIR"
+    fi
 else
     echo "Source directory $SRC_DIR already exists (kept for incremental builds)."
 fi
@@ -101,6 +144,48 @@ echo "5. Applying power-saving, gaming and suffix optimizations..."
 ./scripts/config --enable CONFIG_NO_HZ_IDLE
 ./scripts/config --disable CONFIG_NO_HZ_FULL
 
+# USB game controllers (Xbox/DualSense/etc): found CONFIG_USB_HID silently
+# disabled in the installed 7.1.4-pehacorp config on 2026-07-25 (no gamepad
+# was recognized at all, USB devices looped connect/disconnect in dmesg since
+# nothing claimed the interface) — same "silently dropped Kconfig option"
+# failure mode as BBR/RCU above, just never forced explicitly before. Ubuntu's
+# own base config ships all of these as modules (debian.master/config/
+# annotations), so this only regresses via an unguarded olddefconfig on a
+# reused .config.
+# HID_PLAYSTATION and HID_LOGITECH both `depends on LEDS_CLASS_MULTICOLOR`
+# (drivers/hid/Kconfig), which was itself off in the base config — without
+# forcing it first, olddefconfig silently drops both regardless of the
+# --enable below (caught by the 6b guard on 2026-07-25, 7.1.5 build).
+./scripts/config --enable CONFIG_LEDS_CLASS_MULTICOLOR
+./scripts/config --enable CONFIG_USB_HID
+./scripts/config --enable CONFIG_JOYSTICK_XPAD
+./scripts/config --enable CONFIG_JOYSTICK_XPAD_FF
+./scripts/config --enable CONFIG_JOYSTICK_XPAD_LEDS
+./scripts/config --enable CONFIG_HID_MICROSOFT
+./scripts/config --enable CONFIG_HID_SONY
+./scripts/config --enable CONFIG_HID_PLAYSTATION
+./scripts/config --enable CONFIG_HID_LOGITECH
+
+# USB mass storage (external drives, USB SD/MMC card readers): found both
+# CONFIG_USB_STORAGE and CONFIG_USB_UAS absent from the installed
+# 7.1.5-pehacorp config on 2026-07-31 (the internal USB SD card reader,
+# 058f:6366, enumerates fine as a USB Mass Storage interface — class 08,
+# subclass 06, protocol 50 — but nothing ever binds to it: no usb-storage or
+# uas module even exists under /lib/modules). Same silently-dropped-Kconfig
+# failure mode as BBR/RCU/HID above, never forced explicitly before.
+./scripts/config --enable CONFIG_USB_STORAGE
+./scripts/config --enable CONFIG_USB_UAS
+
+# Filesystems for removable media: VFAT/FAT_FS were already on in the base
+# config, but CONFIG_EXFAT_FS and CONFIG_NTFS3_FS were both absent — most SD
+# cards 64GB+ ship pre-formatted exFAT, so even with USB_STORAGE/UAS fixed
+# above the block device would show up but fail to mount. Forcing both so
+# the block layer and the filesystem layer don't regress independently.
+./scripts/config --enable CONFIG_FAT_FS
+./scripts/config --enable CONFIG_VFAT_FS
+./scripts/config --enable CONFIG_EXFAT_FS
+./scripts/config --enable CONFIG_NTFS3_FS
+
 # Frequency and scheduling for gaming (1000 HZ, Preferred Cores)
 ./scripts/config --disable CONFIG_HZ_100
 ./scripts/config --disable CONFIG_HZ_250
@@ -133,7 +218,7 @@ echo "5. Applying power-saving, gaming and suffix optimizations..."
 ./scripts/config --disable CONFIG_DEBUG_INFO_REDUCED
 ./scripts/config --disable CONFIG_DEBUG_INFO_SPLIT
 
-echo "6. Applying defaults for new options introduced in $LATEST_STABLE..."
+echo "6. Applying defaults for new options introduced in $KERNEL_VERSION..."
 make olddefconfig
 
 echo "6b. Verifying that no critical option was silently dropped by olddefconfig..."
@@ -149,6 +234,19 @@ CRITICAL_OPTIONS=(
     CONFIG_HZ_1000
     CONFIG_SCHED_MC_PRIO
     CONFIG_PREEMPT_DYNAMIC
+    CONFIG_USB_HID
+    CONFIG_JOYSTICK_XPAD
+    CONFIG_HID_MICROSOFT
+    CONFIG_HID_SONY
+    CONFIG_HID_PLAYSTATION
+    CONFIG_HID_LOGITECH
+    CONFIG_LEDS_CLASS_MULTICOLOR
+    CONFIG_USB_STORAGE
+    CONFIG_USB_UAS
+    CONFIG_FAT_FS
+    CONFIG_VFAT_FS
+    CONFIG_EXFAT_FS
+    CONFIG_NTFS3_FS
 )
 CONFIG_ERRORS=0
 for opt in "${CRITICAL_OPTIONS[@]}"; do

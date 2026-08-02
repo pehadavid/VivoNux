@@ -44,12 +44,37 @@ sudo reboot
 The GRUB menu keeps a 5-second safety delay so you can fall back to the generic Ubuntu kernel if
 anything goes wrong.
 
+### Kernel channel: stable, rc, beta
+
+`install.sh` starts by querying `kernel.org` and asking which line to build:
+
+- **stable** (default): the latest stable release. Becomes the **GRUB default** kernel, like before.
+- **rc**: the current mainline release candidate (`X.Y-rcN`), only offered while one is published.
+- **beta**: the current mainline development snapshot (pre-`rc1`, merge-window head), only offered
+  while no RC is published — `rc` and `beta` are two states of the same kernel.org `mainline`
+  moniker, never both available at once.
+
+`rc` and `beta` are built and installed like any other kernel, but **`update_kernel_master.sh`
+never sets them as the GRUB default** — they only show up under "Advanced options for Ubuntu" so
+you opt in to booting an unstable kernel instead of it happening automatically. Answering with
+just Enter (or anything unrecognized) always falls back to `stable`. Kernel updates run later via
+`./update_kernel_master.sh` directly reuse `stable` unless `VIVONUX_KERNEL_CHANNEL=rc` (or `beta`)
+is exported first.
+
+`stable` sources still come straight from `cdn.kernel.org`. `rc`/`beta` sources come from GitHub's
+official read-only mirror of Linus' tree ([`torvalds/linux`](https://github.com/torvalds/linux))
+instead of `git.kernel.org`: kernel.org's own snapshot endpoint for mainline sits behind an
+anti-bot JS challenge that rejects plain scripted downloads (HTTP 403), which GitHub's mirror
+doesn't have.
+
 ### 📁 Repository layout
 
 ```text
 install.sh                    # Master installer (entry point on a fresh machine)
+install-color-profile.sh      # Installs an optional ICC profile for the internal OLED
 compile_kernel.sh             # Downloads, patches and builds the -pehacorp kernel
 update_kernel_master.sh       # Builds + installs the .deb packages + configures GRUB
+cleanup.sh                    # Removes unused kernel sources/old builds (see below)
 patches/                      # Patches automatically applied to the kernel sources
 system/etc/...                # Mirrors /etc: TLP, udev, sysctl (deployed as-is)
 system/usr/local/bin/...      # Mirrors /usr/local/bin: system scripts
@@ -58,6 +83,22 @@ gnome-extension/...           # GNOME Quick Settings widget (battery charge)
 
 Downloaded kernel sources, compiled `.deb` packages and tarballs (several GB) are **not** tracked
 (see `.gitignore`) — they're regenerated on demand by the build.
+
+#### 🧹 Cleaning up unused sources and old builds
+
+Each build leaves the previous kernel source tarball/directory and a few `.deb` build
+revisions on disk (several GB). `install.sh` offers to run [`cleanup.sh`](cleanup.sh) at the
+end of installation; it can also be run any time on its own:
+
+```bash
+./cleanup.sh            # removes everything not needed by the current build
+./cleanup.sh --dry-run  # preview what would be removed, deletes nothing
+```
+
+It always keeps the source tarball/directory and `.deb` set matching the most recently built
+kernel in this folder (so incremental rebuilds and reinstalls still work), and removes: older
+kernel.org source archives/directories, older `.deb`/`.buildinfo`/`.changes` build revisions,
+and leftover files from an unrelated legacy build (Debian source package for kernel 7.0.0).
 
 ### 🛠️ Optimizations and Architectural Choices
 
@@ -134,6 +175,7 @@ The 3.2K OLED panel is one of the biggest battery consumers; two mechanisms tune
 
 - **Refresh rate switching** ([`auto-refresh-rate.py`](system/usr/local/bin/auto-refresh-rate.py) + user service [`auto-refresh-rate.service`](system/etc/systemd/user/auto-refresh-rate.service)): **120 Hz on AC, 60 Hz on battery** (roughly halves display scan-out work). The panel is not VRR-capable, so GNOME's dynamic refresh rate can't be used — the script applies a real mode switch through Mutter's `DisplayConfig` D-Bus interface (session bus, hence a `systemd --user` service like the keyboard backlight one). It uses the *persistent* `ApplyMonitorsConfig` method on purpose: the *temporary* one triggers GNOME's "keep these settings?" confirmation pop-up on every switch. Historical note: this script predates its integration into the repo — it originally lived untracked in a scratch directory; `install.sh` removes the old user-local unit when deploying this one.
 - **Static ABM (Adaptive Backlight Management), `amdgpu.abmlevel=3` on the kernel command line**: this is a boot-time-only setting — **there is no dynamic AC/battery ABM switch on this hardware**, and none is possible. Tried and reverted on 2026-07-24: the driver (`drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c`) reports `aux_support=true` unconditionally for any OLED panel, which makes `amdgpu_dm_should_create_sysfs()` refuse to create the `panel_power_savings` sysfs entry regardless of `abmlevel` — and the equivalent DRM property is explicitly withheld for OLED panels too. Worse, dropping `abmlevel` from the command line doesn't leave ABM "auto": the driver's default (`amdgpu_dm_abm_level = -1`) is forced to `ABM_LEVEL_IMMEDIATE_DISABLE`, i.e. ABM permanently **off** on both AC and battery — the opposite of the intended saving. `abmlevel=3` must stay in the command line.
+- **Optional ICC color profile** ([`install-color-profile.sh`](install-color-profile.sh)): validates an `.icc`/`.icm` file, checks the eDP EDID for the exact Samsung `ATNA60BX01-1` panel, imports the profile through `colord`, and makes it the default for the device marked as the internal display. Run it as the desktop user, never with `sudo`: `./install-color-profile.sh`. A fresh install can do the same with `VIVONUX_ICC_PROFILE=./ATNA60BX01-1.icc ./install.sh`. The repo bundles [`ATNA60BX01-1.icc`](ATNA60BX01-1.icc) as the default profile — a display measurement of the same Samsung panel published by [Notebookcheck](https://www.notebookcheck.net/) (X-Rite i1Basic Pro 3, ΔE 2.42 calibrated), not an ASUS factory profile. VivoNux still does not redistribute ASUS or other commercial factory profiles; pass any other `.icc`/`.icm` path as an argument to use one obtained legally or created with a colorimeter instead.
 
 #### 8. GNOME Widget: 80% / 100% Battery Charge Toggle
 
@@ -170,11 +212,11 @@ cd VivoNux
 
 **What this all-in-one script does automatically:**
 
-1. **Build & auto-patching**: looks up the latest stable release on `kernel.org`, automatically applies every `.patch` file in `patches/`, and runs `compile_kernel.sh` with all optimizations.
+1. **Build & auto-patching**: looks up the selected channel on `kernel.org` (see [Kernel channel](#kernel-channel-stable-rc-beta) above), automatically applies every `.patch` file in `patches/`, and runs `compile_kernel.sh` with all optimizations.
 2. **Identification**: automatically finds the generated `.deb` packages and extracts the exact version (e.g. `7.1.4-pehacorp`).
 3. **Installation**: runs `sudo dpkg -i` to install the new kernel image and headers.
 4. **Safe GRUB configuration**:
-   - Sets the new `-pehacorp` kernel as the **default boot kernel**.
+   - Sets the new `-pehacorp` kernel as the **default boot kernel** — only for the `stable` channel; an `rc`/`beta` build is installed and available from the GRUB menu but is **never** made the default (see below).
    - Keeps a **5-second GRUB menu delay** so you can easily boot back into the generic Ubuntu kernel if something goes wrong.
 5. **GRUB update**: runs `sudo update-grub`.
 6. **Build cleanup**: keeps only the **3 most recent** `-pehacorp` builds (`.deb` packages + `.buildinfo`/`.changes`) in the repo directory, removing older ones to avoid piling up several GB over time. This only touches build artifacts on disk — never the currently installed kernel packages or `/boot`.
@@ -270,12 +312,39 @@ sudo reboot
 Le menu GRUB garde un délai de sécurité de 5 secondes pour revenir au noyau Ubuntu générique en
 cas de souci.
 
+### Canal du noyau : stable, rc, beta
+
+`install.sh` commence par interroger `kernel.org` et demande quelle ligne compiler :
+
+- **stable** (par défaut) : la dernière version stable. Devient le noyau **par défaut dans GRUB**,
+  comme avant.
+- **rc** : la release candidate mainline en cours (`X.Y-rcN`), proposée uniquement quand il y en a une.
+- **beta** : le snapshot de développement mainline en cours (avant `rc1`, tête de la fenêtre de
+  fusion), proposé uniquement quand aucune RC n'est publiée — `rc` et `beta` sont deux états du même
+  repère `mainline` de kernel.org, jamais disponibles en même temps.
+
+`rc` et `beta` sont compilés et installés comme n'importe quel noyau, mais
+**`update_kernel_master.sh` ne les définit jamais comme noyau par défaut dans GRUB** — ils
+n'apparaissent que sous « Advanced options for Ubuntu », pour choisir explicitement de démarrer
+sur un noyau instable plutôt que ça arrive automatiquement. Répondre juste avec Entrée (ou une
+réponse non reconnue) retombe toujours sur `stable`. Les mises à jour lancées plus tard via
+`./update_kernel_master.sh` directement réutilisent `stable`, sauf si `VIVONUX_KERNEL_CHANNEL=rc`
+(ou `beta`) est exporté avant.
+
+Les sources `stable` viennent toujours directement de `cdn.kernel.org`. Les sources `rc`/`beta`
+viennent du miroir officiel en lecture seule de l'arbre de Linus sur GitHub
+([`torvalds/linux`](https://github.com/torvalds/linux)) plutôt que de `git.kernel.org` : le point
+de génération de snapshot de kernel.org pour mainline est protégé par un challenge JS anti-bot qui
+rejette les téléchargements scriptés (HTTP 403), ce que le miroir GitHub n'a pas.
+
 ### 📁 Structure du dépôt
 
 ```text
 install.sh                    # Installeur maître (point d'entrée sur machine neuve)
+install-color-profile.sh      # Installe un profil ICC optionnel pour l'OLED interne
 compile_kernel.sh             # Télécharge, patch et compile le noyau -pehacorp
 update_kernel_master.sh       # Compile + installe les .deb + configure GRUB
+cleanup.sh                    # Supprime les sources/anciens builds inutilisés (voir ci-dessous)
 patches/                      # Patchs appliqués automatiquement aux sources du noyau
 system/etc/...                # Miroir de /etc : TLP, udev, sysctl (déployés tels quels)
 system/usr/local/bin/...      # Miroir de /usr/local/bin : scripts système
@@ -284,6 +353,24 @@ gnome-extension/...           # Widget GNOME Quick Settings (charge batterie)
 
 Les sources noyau téléchargées, les `.deb` compilés et les tarballs (plusieurs Go) ne sont **pas**
 versionnés (voir `.gitignore`) — ils se régénèrent à la demande via la compilation.
+
+#### 🧹 Nettoyer les sources inutilisées et les anciens builds
+
+Chaque compilation laisse sur le disque l'archive/le répertoire source du noyau précédent
+ainsi que quelques anciennes révisions de `.deb` (plusieurs Go). `install.sh` propose de
+lancer [`cleanup.sh`](cleanup.sh) en fin d'installation ; il peut aussi être lancé seul à
+tout moment :
+
+```bash
+./cleanup.sh            # supprime tout ce qui n'est plus utile au build actuel
+./cleanup.sh --dry-run  # simule le nettoyage, ne supprime rien
+```
+
+Il conserve toujours l'archive/le répertoire source et le jeu de `.deb` correspondant au
+dernier noyau compilé dans ce dossier (pour ne pas casser les rebuilds incrémentaux ni les
+réinstallations), et supprime : les anciennes archives/répertoires sources kernel.org, les
+anciennes révisions `.deb`/`.buildinfo`/`.changes`, et les résidus d'un ancien build sans
+rapport (paquet source Debian du noyau 7.0.0).
 
 ### 🛠️ Optimisations et Choix Architecturaux
 
@@ -359,6 +446,7 @@ La dalle OLED 3.2K est l'un des plus gros consommateurs sur batterie ; deux méc
 
 - **Bascule de fréquence de rafraîchissement** ([`auto-refresh-rate.py`](system/usr/local/bin/auto-refresh-rate.py) + service utilisateur [`auto-refresh-rate.service`](system/etc/systemd/user/auto-refresh-rate.service)) : **120 Hz sur secteur, 60 Hz sur batterie** (divise environ par deux le travail de scan-out de l'affichage). La dalle n'est pas compatible VRR, donc le rafraîchissement dynamique de GNOME est inutilisable — le script applique un vrai changement de mode via l'interface D-Bus `DisplayConfig` de Mutter (bus session, donc un service `systemd --user` comme celui du rétroéclairage clavier). Il utilise volontairement la méthode `ApplyMonitorsConfig` *persistante* : la méthode *temporaire* déclenche la pop-up de confirmation GNOME « conserver ces réglages ? » à chaque bascule. Note historique : ce script est antérieur à son intégration dans le dépôt — il vivait non-versionné dans un répertoire scratch ; `install.sh` supprime l'ancienne unité utilisateur locale en déployant celle-ci.
 - **ABM statique (Adaptive Backlight Management), `amdgpu.abmlevel=3` sur la ligne de commande kernel** : c'est un réglage figé au boot uniquement — **il n'existe aucune bascule ABM dynamique secteur/batterie possible sur ce matériel**. Testé puis annulé le 24/07/2026 : le driver (`drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c`) remonte `aux_support=true` de façon inconditionnelle pour toute dalle OLED, ce qui fait que `amdgpu_dm_should_create_sysfs()` refuse de créer l'entrée sysfs `panel_power_savings` quel que soit `abmlevel` — et la propriété DRM équivalente est elle aussi explicitement désactivée pour les dalles OLED. Pire : retirer `abmlevel` de la ligne de commande ne laisse pas l'ABM en mode "auto" : la valeur par défaut du driver (`amdgpu_dm_abm_level = -1`) est forcée à `ABM_LEVEL_IMMEDIATE_DISABLE`, c'est-à-dire l'ABM **coupé en permanence** sur secteur comme sur batterie — l'inverse de l'économie recherchée. `abmlevel=3` doit rester dans la ligne de commande.
+- **Profil colorimétrique ICC optionnel** ([`install-color-profile.sh`](install-color-profile.sh)) : valide un fichier `.icc`/`.icm`, vérifie dans l'EDID eDP la référence exacte Samsung `ATNA60BX01-1`, importe le profil via `colord` et en fait le profil par défaut du périphérique marqué comme écran intégré. À lancer comme utilisateur de la session graphique, jamais avec `sudo` : `./install-color-profile.sh`. Une installation neuve peut faire la même chose avec `VIVONUX_ICC_PROFILE=./ATNA60BX01-1.icc ./install.sh`. Le dépôt embarque [`ATNA60BX01-1.icc`](ATNA60BX01-1.icc) comme profil par défaut — une mesure de la même dalle Samsung publiée par [Notebookcheck](https://www.notebookcheck.net/) (X-Rite i1Basic Pro 3, ΔE 2.42 calibré), pas un profil usine ASUS. VivoNux ne redistribue toujours aucun profil usine ASUS ou commercial ; passe le chemin d'un autre `.icc`/`.icm` en argument pour utiliser un profil obtenu légalement ou créé avec une sonde à la place.
 
 #### 8. Widget GNOME : Bascule Charge Batterie 80% / 100%
 
@@ -395,11 +483,11 @@ cd VivoNux
 
 **Ce que fait ce script tout-en-un automatiquement :**
 
-1. **Compilation & Auto-Patching** : Recherche la dernière version stable sur `kernel.org`, applique automatiquement tous les fichiers `.patch` présents dans `patches/` et lance `compile_kernel.sh` avec toutes les optimisations.
+1. **Compilation & Auto-Patching** : Recherche le canal sélectionné sur `kernel.org` (voir [Canal du noyau](#canal-du-noyau--stable-rc-beta) plus haut), applique automatiquement tous les fichiers `.patch` présents dans `patches/` et lance `compile_kernel.sh` avec toutes les optimisations.
 2. **Identification** : Détecte automatiquement les paquets `.deb` générés et extrait la version exacte (ex: `7.1.4-pehacorp`).
 3. **Installation** : Exécute `sudo dpkg -i` pour installer l'image et les en-têtes du nouveau noyau.
 4. **Configuration GRUB Sécurisée** :
-   - Définit le nouveau noyau `-pehacorp` comme **noyau par défaut au démarrage**.
+   - Définit le nouveau noyau `-pehacorp` comme **noyau par défaut au démarrage** — uniquement pour le canal `stable` ; un build `rc`/`beta` est installé et disponible dans le menu GRUB mais **jamais** défini par défaut (voir plus haut).
    - Maintient un **délai de 5 secondes au menu GRUB** pour te laisser la possibilité de démarrer facilement sur le noyau générique Ubuntu en cas d'imprévu.
 5. **Mise à jour GRUB** : Exécute `sudo update-grub`.
 6. **Nettoyage des builds** : ne garde que les **3 builds `-pehacorp` les plus récentes** (paquets `.deb` + `.buildinfo`/`.changes`) dans le dossier du dépôt, en supprimant les plus anciennes pour éviter d'accumuler plusieurs Go au fil du temps. Ça ne touche qu'aux artefacts de build sur disque — jamais aux paquets noyau réellement installés ni à `/boot`.

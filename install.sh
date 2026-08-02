@@ -11,8 +11,67 @@ echo "  VivoNux — Installation                                  "
 echo "=========================================================="
 echo ""
 
-# --- 1. Hardware guard ---------------------------------------------------
-echo "=== 1. Hardware check ==="
+# --- 1. Kernel channel selection -------------------------------------------
+echo "=== 1. Kernel channel ==="
+echo "Querying kernel.org for available channels..."
+KERNEL_CHANNEL_INFO=$(python3 -c "
+import urllib.request, json, re, sys
+try:
+    with urllib.request.urlopen('https://kernel.org/releases.json') as response:
+        data = json.loads(response.read().decode())
+except Exception as e:
+    print(f'ERROR: {e}', file=sys.stderr)
+    sys.exit(1)
+
+print(f\"STABLE_VERSION={data['latest_stable']['version']}\")
+mainline = next((r for r in data['releases'] if r['moniker'] == 'mainline'), None)
+if mainline:
+    if re.search(r'-rc[0-9]+\$', mainline['version']):
+        print(f\"RC_VERSION={mainline['version']}\")
+    else:
+        print(f\"BETA_VERSION={mainline['version']}\")
+")
+eval "$KERNEL_CHANNEL_INFO"
+
+echo "  1) stable -- $STABLE_VERSION  (default, becomes the GRUB default kernel)"
+if [ -n "${RC_VERSION:-}" ]; then
+    echo "  2) rc     -- $RC_VERSION  (release candidate, installed but NOT set as GRUB default)"
+fi
+if [ -n "${BETA_VERSION:-}" ]; then
+    echo "  2) beta   -- $BETA_VERSION  (mainline dev snapshot, installed but NOT set as GRUB default)"
+fi
+if [ -z "${RC_VERSION:-}${BETA_VERSION:-}" ]; then
+    echo "  (no mainline RC or beta currently published on kernel.org)"
+fi
+
+VIVONUX_KERNEL_CHANNEL="stable"
+if [ -n "${RC_VERSION:-}${BETA_VERSION:-}" ]; then
+    read -r -p "Which kernel line to build? [stable] " CHANNEL_REPLY
+    case "${CHANNEL_REPLY,,}" in
+        rc)
+            if [ -n "${RC_VERSION:-}" ]; then
+                VIVONUX_KERNEL_CHANNEL="rc"
+            else
+                echo "No RC currently published, falling back to stable."
+            fi
+            ;;
+        beta)
+            if [ -n "${BETA_VERSION:-}" ]; then
+                VIVONUX_KERNEL_CHANNEL="beta"
+            else
+                echo "No beta snapshot currently published, falling back to stable."
+            fi
+            ;;
+        ""|stable) ;;
+        *) echo "Unrecognized answer, falling back to stable." ;;
+    esac
+fi
+export VIVONUX_KERNEL_CHANNEL
+echo "Selected channel: $VIVONUX_KERNEL_CHANNEL"
+
+# --- 2. Hardware guard ---------------------------------------------------
+echo ""
+echo "=== 2. Hardware check ==="
 CPU_MODEL=$(grep -m1 "model name" /proc/cpuinfo | cut -d: -f2- | sed 's/^ *//')
 PRODUCT_NAME=$(cat /sys/class/dmi/id/product_name 2>/dev/null || echo "unknown")
 
@@ -34,10 +93,13 @@ if ! echo "$CPU_MODEL" | grep -qiE "HX ?370|HX-370" || ! echo "$PRODUCT_NAME" | 
     fi
 fi
 
-# --- 2. Build dependencies ------------------------------------------------
+# --- 3. Build dependencies ------------------------------------------------
 echo ""
-echo "=== 2. Build dependencies ==="
+echo "=== 3. Build dependencies ==="
 DEPS=(build-essential libncurses-dev flex bison libssl-dev libelf-dev dwarves python3 python3-dbus)
+if [ -n "${VIVONUX_ICC_PROFILE:-}" ]; then
+    DEPS+=(colord)
+fi
 MISSING=()
 for pkg in "${DEPS[@]}"; do
     dpkg -s "$pkg" >/dev/null 2>&1 || MISSING+=("$pkg")
@@ -50,9 +112,9 @@ else
     echo "All build dependencies are already present."
 fi
 
-# --- 3. System configuration deployment -----------------------------------
+# --- 4. System configuration deployment -----------------------------------
 echo ""
-echo "=== 3. TLP / udev / sysctl deployment ==="
+echo "=== 4. TLP / udev / sysctl deployment ==="
 sudo cp -v "$VIVONUX_DIR/system/etc/tlp.d/99-amd-power-savings.conf" /etc/tlp.d/
 sudo cp -v "$VIVONUX_DIR/system/etc/udev/rules.d/99-wifi-power-mode.rules" /etc/udev/rules.d/
 sudo cp -v "$VIVONUX_DIR/system/etc/udev/rules.d/99-battery-charge-limit.rules" /etc/udev/rules.d/
@@ -94,9 +156,9 @@ else
     echo "gdbus not found (libglib2.0-bin package) — keyboard backlight and refresh-rate services skipped."
 fi
 
-# --- 4. GNOME extension (Full Charge BAT1) --------------------------------
+# --- 5. GNOME extension (Full Charge BAT1) --------------------------------
 echo ""
-echo "=== 4. Battery charge GNOME widget ==="
+echo "=== 5. Battery charge GNOME widget ==="
 if command -v gnome-shell >/dev/null 2>&1; then
     EXT_SRC="$VIVONUX_DIR/gnome-extension/charge-complete-bat1@peha"
     EXT_DIR="$HOME/.local/share/gnome-shell/extensions/charge-complete-bat1@peha"
@@ -112,10 +174,31 @@ else
     echo "GNOME Shell not detected, extension skipped."
 fi
 
-# --- 5. Build and install the -pehacorp kernel ----------------------------
+# --- 6. Optional internal display color profile ----------------------------
 echo ""
-echo "=== 5. Kernel build and installation (can take a while) ==="
+echo "=== 6. Internal OLED color profile ==="
+if [ -n "${VIVONUX_ICC_PROFILE:-}" ]; then
+    bash "$VIVONUX_DIR/install-color-profile.sh" "$VIVONUX_ICC_PROFILE"
+else
+    echo "No ICC profile supplied (optional)."
+    echo "To install the bundled default later: ./install-color-profile.sh"
+    echo "Or rerun with: VIVONUX_ICC_PROFILE=./ATNA60BX01-1.icc ./install.sh"
+fi
+
+# --- 7. Build and install the -pehacorp kernel ----------------------------
+echo ""
+echo "=== 7. Kernel build and installation (can take a while) ==="
 bash "$VIVONUX_DIR/update_kernel_master.sh"
+
+# --- 8. Optional cleanup ---------------------------------------------------
+echo ""
+echo "=== 8. Cleanup ==="
+read -r -p "Clean up the folder now (old kernel sources/builds no longer used)? [y/N] " REPLY
+if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+    bash "$VIVONUX_DIR/cleanup.sh"
+else
+    echo "Skipped. Run ./cleanup.sh any time (or ./cleanup.sh --dry-run to preview)."
+fi
 
 echo ""
 echo "=========================================================="

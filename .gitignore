@@ -10,3 +10,4 @@ linux_*.dsc
 *.buildinfo
 *.changes
 *_TESTCOPY
+.mcp.json

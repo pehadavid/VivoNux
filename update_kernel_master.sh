@@ -37,9 +37,17 @@ sudo dpkg -i "$IMAGE_DEB" "$HEADERS_DEB"
 echo ""
 echo "=== 4. Configuring GRUB ==="
 GRUB_FILE="/etc/default/grub"
+KERNEL_CHANNEL="${VIVONUX_KERNEL_CHANNEL:-stable}"
 
-# 1. Set the new pehacorp kernel as default
-sudo sed -i 's|^GRUB_DEFAULT=.*|GRUB_DEFAULT="Advanced options for Ubuntu>Ubuntu, with Linux '"$NEW_KERNEL_VER"'"|' "$GRUB_FILE"
+# 1. Set the new pehacorp kernel as default -- but never for an rc/beta build:
+#    an unstable channel must stay opt-in from the GRUB menu, not something
+#    that boots automatically and could leave the machine unbootable unattended.
+if [ "$KERNEL_CHANNEL" = "stable" ]; then
+    sudo sed -i 's|^GRUB_DEFAULT=.*|GRUB_DEFAULT="Advanced options for Ubuntu>Ubuntu, with Linux '"$NEW_KERNEL_VER"'"|' "$GRUB_FILE"
+else
+    echo "Channel '$KERNEL_CHANNEL' kernel ($NEW_KERNEL_VER) installed but NOT set as the GRUB default."
+    echo "Select it manually from the GRUB menu (Advanced options for Ubuntu) to test it."
+fi
 
 # 2. Keep the GRUB menu with a 5-second delay (safety net back to the original kernel)
 sudo sed -i 's/^GRUB_TIMEOUT_STYLE=.*/GRUB_TIMEOUT_STYLE=menu/' "$GRUB_FILE"
@@ -90,7 +98,12 @@ fi
 echo ""
 echo "=========================================================="
 echo "  INSTALLATION COMPLETE!"
-echo "  - Default kernel: $NEW_KERNEL_VER"
+if [ "$KERNEL_CHANNEL" = "stable" ]; then
+    echo "  - Default kernel: $NEW_KERNEL_VER"
+else
+    echo "  - Installed ($KERNEL_CHANNEL channel, NOT default): $NEW_KERNEL_VER"
+    echo "  - Select it from GRUB's 'Advanced options for Ubuntu' to boot it"
+fi
 echo "  - GRUB menu: active (5-second safety delay)"
 echo "  - Reboot command: sudo reboot"
 echo "=========================================================="
