@@ -109,7 +109,12 @@ if [ -d "$KERNEL_DIR/patches" ]; then
         for p in "$KERNEL_DIR/patches"/*.patch; do
             if [ -f "$p" ]; then
                 echo "Applying patch: $(basename "$p")"
-                patch -p1 --forward --no-backup-if-mismatch < "$p"
+                # Some patches target files specific to one kernel line (e.g. rc-only
+                # drivers not present in stable) -- don't let one irrelevant patch
+                # abort the whole build, just flag it for manual review.
+                if ! patch -p1 --forward --no-backup-if-mismatch < "$p"; then
+                    echo "WARNING: patch $(basename "$p") did not apply cleanly against $SRC_DIR (kernel source has likely diverged, or this patch doesn't target this kernel line) -- skipped, verify manually."
+                fi
             fi
         done
         touch "$PATCH_STAMP"
@@ -165,6 +170,26 @@ echo "5. Applying power-saving, gaming and suffix optimizations..."
 ./scripts/config --enable CONFIG_HID_SONY
 ./scripts/config --enable CONFIG_HID_PLAYSTATION
 ./scripts/config --enable CONFIG_HID_LOGITECH
+
+# Bluetooth game controllers (8BitDo SN30 Pro, etc): CONFIG_BT_HIDP was absent
+# from the installed 7.2.0-rc5-pehacorp config (found 2026-08-05) — bluetoothd
+# fails with "Can't open HIDP control socket" / "Host is down" because the
+# hidp module (net/bluetooth/hidp) doesn't even exist under /lib/modules,
+# unlike its sibling bnep which builds fine. Depends on BT_BREDR (on by
+# default) && HID (already forced above), so no dependency chain to drag in —
+# just never forced explicitly before. Same silently-dropped-Kconfig failure
+# mode as USB_HID/JOYSTICK_XPAD above, one layer over in the Bluetooth stack.
+./scripts/config --enable CONFIG_BT_HIDP
+
+# Wired Nintendo Switch Pro Controller / 8BitDo in Switch mode over USB:
+# CONFIG_HID_NINTENDO absent from the installed 7.2.0-rc6-pehacorp config
+# (found 2026-08-07) — device enumerates fine (057e:2009, "Pro Controller"
+# in the USB strings) and hid-generic claims it, so RetroArch sees a device
+# named "Switch Pro Controller", but hid-generic never sends the vendor
+# init handshake the Nintendo protocol needs, so no usable button/stick
+# reports come through. Depends on NEW_LEDS + LEDS_CLASS, both already y
+# in the base config, so nothing else to drag in.
+./scripts/config --enable CONFIG_HID_NINTENDO
 
 # USB mass storage (external drives, USB SD/MMC card readers): found both
 # CONFIG_USB_STORAGE and CONFIG_USB_UAS absent from the installed
@@ -240,6 +265,8 @@ CRITICAL_OPTIONS=(
     CONFIG_HID_SONY
     CONFIG_HID_PLAYSTATION
     CONFIG_HID_LOGITECH
+    CONFIG_BT_HIDP
+    CONFIG_HID_NINTENDO
     CONFIG_LEDS_CLASS_MULTICOLOR
     CONFIG_USB_STORAGE
     CONFIG_USB_UAS

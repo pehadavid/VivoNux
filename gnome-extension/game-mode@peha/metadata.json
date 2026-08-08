@@ -1,0 +1,15 @@
+{
+  "name": "Game Mode",
+  "description": "Switch to an external HDMI display, jump to a dedicated workspace, and launch Steam or RetroArch fullscreen.",
+  "uuid": "game-mode@peha",
+  "shell-version": [
+    "45",
+    "46",
+    "47",
+    "48",
+    "49",
+    "50",
+    "51"
+  ],
+  "url": ""
+}

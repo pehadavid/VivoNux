@@ -1,0 +1,116 @@
+From: Pehacorp Kernel Optimization <kernel@pehacorp.local>
+Date: Sun, 02 Aug 2026 12:00:00 +0200
+Subject: [PATCH] wifi: mt76: mt7921: fix self-deadlock on 6 GHz association
+
+mt7921_mac_sta_add() runs under dev->mt76.mutex, taken by the mac80211
+core in mt76_sta_add() before calling into the driver's ->sta_add().
+It calls mt7921_regd_set_6ghz_power_type(), which -- whenever the vif's
+operating channel is in the 6 GHz band -- calls mt7921_mcu_regd_update(),
+which itself does mt792x_mutex_acquire(dev), i.e. tries to take the same
+dev->mt76.mutex again. mutex_lock() is not recursive, so this is a
+guaranteed self-deadlock the moment a vif associates on a 6 GHz BSS,
+hanging wpa_supplicant and taking the whole network stack down with it
+(observed as "task wpa_supplicant is blocked on a mutex likely owned by
+task wpa_supplicant" in dmesg, confirmed via journalctl on 2026-08-02
+across two separate rc5 boots, both hanging within minutes of roaming
+onto our AP's 6 GHz BSSID).
+
+This whole CLC/6GHz-power-type call chain is new in the 7.2-rc5 tree
+(regd.c does not exist in our 7.1.5 tree at all), so 7.1.5 is unaffected.
+
+Fix: split mt7921_mcu_regd_update() into the actual work
+(mt7921_mcu_regd_update_locked(), assumes the caller already holds
+dev->mt76.mutex) and a thin wrapper that takes the mutex before calling
+it. mt7921_regd_set_6ghz_power_type() -- always called from a sta_add/
+sta_remove path that already holds the mutex -- now calls the _locked
+variant directly instead of re-entering the wrapper.
+
+NOTE (check at 7.2 final release): this is a workaround for a bug in
+code that was still moving during the rc cycle. Before re-applying this
+patch to a new source drop, re-check whether mt7921_mac_sta_add() /
+mt7921_regd_set_6ghz_power_type() / mt7921_mcu_regd_update() still have
+this shape -- if upstream restructured or fixed the locking, this patch
+may no longer apply, or worse, may no longer be needed.
+
+Signed-off-by: Pehacorp Kernel Optimization <kernel@pehacorp.local>
+
+--- a/drivers/net/wireless/mediatek/mt76/mt7921/regd.c
++++ b/drivers/net/wireless/mediatek/mt76/mt7921/regd.c
+@@ -71,35 +71,39 @@
+ 	}
+ }
+
+-int mt7921_mcu_regd_update(struct mt792x_dev *dev, u8 *alpha2,
+-			   enum environment_cap country_ie_env)
++int mt7921_mcu_regd_update_locked(struct mt792x_dev *dev, u8 *alpha2,
++				  enum environment_cap country_ie_env)
+ {
+ 	struct mt76_dev *mdev = &dev->mt76;
+ 	struct ieee80211_hw *hw = mdev->hw;
+ 	struct wiphy *wiphy = hw->wiphy;
+ 	int ret = 0;
+
+-	dev->regd_in_progress = true;
+-
+-	mt792x_mutex_acquire(dev);
+ 	if (!dev->regd_change)
+-		goto err;
++		return 0;
+
+ 	ret = mt7921_mcu_set_clc(dev, alpha2, country_ie_env);
+ 	if (ret < 0)
+-		goto err;
++		return ret;
+
+ 	mt7921_regd_channel_update(wiphy, dev);
+
+ 	ret = mt76_connac_mcu_set_channel_domain(hw->priv);
+ 	if (ret < 0)
+-		goto err;
++		return ret;
+
+-	ret = mt7921_set_tx_sar_pwr(hw, NULL);
+-	if (ret < 0)
+-		goto err;
++	return mt7921_set_tx_sar_pwr(hw, NULL);
++}
++EXPORT_SYMBOL_GPL(mt7921_mcu_regd_update_locked);
+
+-err:
++int mt7921_mcu_regd_update(struct mt792x_dev *dev, u8 *alpha2,
++			   enum environment_cap country_ie_env)
++{
++	int ret;
++
++	dev->regd_in_progress = true;
++	mt792x_mutex_acquire(dev);
++	ret = mt7921_mcu_regd_update_locked(dev, alpha2, country_ie_env);
+ 	mt792x_mutex_release(dev);
+ 	dev->regd_change = false;
+ 	dev->regd_in_progress = false;
+--- a/drivers/net/wireless/mediatek/mt76/mt7921/regd.h
++++ b/drivers/net/wireless/mediatek/mt76/mt7921/regd.h
+@@ -8,6 +8,8 @@
+ struct wiphy;
+ struct regulatory_request;
+
++int mt7921_mcu_regd_update_locked(struct mt792x_dev *dev, u8 *alpha2,
++				  enum environment_cap country_ie_env);
+ int mt7921_mcu_regd_update(struct mt792x_dev *dev, u8 *alpha2,
+ 			   enum environment_cap country_ie_env);
+ void mt7921_regd_notifier(struct wiphy *wiphy,
+--- a/drivers/net/wireless/mediatek/mt76/mt7921/main.c
++++ b/drivers/net/wireless/mediatek/mt76/mt7921/main.c
+@@ -802,7 +802,11 @@
+
+ out:
+ 	if (vif->bss_conf.chanreq.oper.chan->band == NL80211_BAND_6GHZ)
+-		mt7921_mcu_regd_update(dev, dev->mt76.alpha2, dev->country_ie_env);
++		/* Called from mt7921_mac_sta_add()/_remove(), which already run
++		 * under dev->mt76.mutex (taken by mt76_sta_add()/_remove()) --
++		 * use the pre-locked variant to avoid re-entering the mutex.
++		 */
++		mt7921_mcu_regd_update_locked(dev, dev->mt76.alpha2, dev->country_ie_env);
+ }
+
+ int mt7921_mac_sta_add(struct mt76_dev *mdev, struct ieee80211_vif *vif,

@@ -174,9 +174,28 @@ else
     echo "GNOME Shell not detected, extension skipped."
 fi
 
-# --- 6. Optional internal display color profile ----------------------------
+# --- 6. GNOME extension (Game Mode) -----------------------------------------
 echo ""
-echo "=== 6. Internal OLED color profile ==="
+echo "=== 6. Game Mode GNOME widget ==="
+if command -v gnome-shell >/dev/null 2>&1; then
+    EXT_SRC="$VIVONUX_DIR/gnome-extension/game-mode@peha"
+    EXT_DIR="$HOME/.local/share/gnome-shell/extensions/game-mode@peha"
+    mkdir -p "$EXT_DIR"
+    cp -v "$EXT_SRC/"*.js "$EXT_DIR/"
+    cp -v "$EXT_SRC/"*.json "$EXT_DIR/"
+    cp -v "$EXT_SRC/"*.css "$EXT_DIR/"
+    if [ -d "$EXT_SRC/locale" ]; then
+        cp -rv "$EXT_SRC/locale" "$EXT_DIR/"
+    fi
+    gnome-extensions enable game-mode@peha 2>/dev/null \
+        || echo "  (the toggle will show up after opening a GNOME session)"
+else
+    echo "GNOME Shell not detected, extension skipped."
+fi
+
+# --- 7. Optional internal display color profile ----------------------------
+echo ""
+echo "=== 7. Internal OLED color profile ==="
 if [ -n "${VIVONUX_ICC_PROFILE:-}" ]; then
     bash "$VIVONUX_DIR/install-color-profile.sh" "$VIVONUX_ICC_PROFILE"
 else
@@ -185,14 +204,14 @@ else
     echo "Or rerun with: VIVONUX_ICC_PROFILE=./ATNA60BX01-1.icc ./install.sh"
 fi
 
-# --- 7. Build and install the -pehacorp kernel ----------------------------
+# --- 8. Build and install the -pehacorp kernel ----------------------------
 echo ""
-echo "=== 7. Kernel build and installation (can take a while) ==="
+echo "=== 8. Kernel build and installation (can take a while) ==="
 bash "$VIVONUX_DIR/update_kernel_master.sh"
 
-# --- 8. Optional cleanup ---------------------------------------------------
+# --- 9. Optional cleanup ---------------------------------------------------
 echo ""
-echo "=== 8. Cleanup ==="
+echo "=== 9. Cleanup ==="
 read -r -p "Clean up the folder now (old kernel sources/builds no longer used)? [y/N] " REPLY
 if [[ "$REPLY" =~ ^[Yy]$ ]]; then
     bash "$VIVONUX_DIR/cleanup.sh"

@@ -1,0 +1,43 @@
+.game-mode-picker-overlay {
+    background-color: rgba(0, 0, 0, 0.55);
+}
+
+.game-mode-picker {
+    spacing: 24px;
+    padding: 32px;
+}
+
+.game-mode-picker-title {
+    font-size: 18px;
+    font-weight: bold;
+    text-align: center;
+}
+
+.game-mode-picker-buttons {
+    spacing: 24px;
+}
+
+.game-mode-picker-button {
+    width: 200px;
+    height: 140px;
+    padding: 16px;
+    border-radius: 12px;
+    background-color: rgba(255, 255, 255, 0.08);
+    border: 2px solid transparent;
+}
+
+.game-mode-picker-button:focus,
+.game-mode-picker-button:hover {
+    background-color: rgba(255, 255, 255, 0.16);
+    border: 2px solid #3584e4;
+}
+
+.game-mode-picker-icon {
+    icon-size: 64px;
+}
+
+.game-mode-picker-label {
+    font-size: 15px;
+    text-align: center;
+    margin-top: 8px;
+}

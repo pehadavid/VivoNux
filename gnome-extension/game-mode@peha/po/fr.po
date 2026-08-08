@@ -1,0 +1,39 @@
+# French translation for the Game Mode GNOME extension.
+# Copyright (C) 2026
+# This file is distributed under the same license as the VivoNux package.
+msgid ""
+msgstr ""
+"Project-Id-Version: game-mode@peha\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-07 19:35+0200\n"
+"PO-Revision-Date: 2026-08-07 19:35+0200\n"
+"Last-Translator: VivoNux\n"
+"Language-Team: French\n"
+"Language: fr\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: extension.js:174
+msgid "Choose what to launch"
+msgstr "Choisissez quoi lancer"
+
+#: extension.js:185 extension.js:566
+msgid "Steam"
+msgstr "Steam"
+
+#: extension.js:186 extension.js:566
+msgid "RetroArch"
+msgstr "RetroArch"
+
+#: extension.js:376
+msgid "Choosing…"
+msgstr "Choix en cours…"
+
+#: extension.js:387 extension.js:450 extension.js:580
+msgid "Off"
+msgstr "Désactivé"
+
+#: extension.js:578
+msgid "Game Mode"
+msgstr "Mode Jeu"
